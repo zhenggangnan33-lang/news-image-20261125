@@ -1,29 +1,32 @@
+// news-image-20261125 v3 — copies entry.png to the output directory.
+// Node 22, stdlib only. Fails loudly on empty, oversized, or non-PNG output.
 import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-// news-image-20261125 v2: copy the rendered front page to /output.
-// The image is drawn by render.py (PIL) and stored as entry.png;
-// this program only copies it, so both runs write identical bytes.
-const here = dirname(fileURLToPath(import.meta.url));
-const src = join(here, "entry.png");
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+const OUT_DIR = process.env.MAKEFUN_OUTPUT_DIR || "/output";
+const SRC = new URL("./entry.png", import.meta.url);
+const DEST = join(OUT_DIR, "entry.png");
+const MAX_BYTES = 1048576;
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-mkdirSync(outDir, { recursive: true });
-const st = statSync(src);
+// Fail before copying if the source is not a whole PNG.
+const head = readFileSync(SRC).subarray(0, 8);
+if (!head.equals(PNG_MAGIC)) {
+  throw new Error("entry.png does not start with the PNG magic bytes");
+}
+
+mkdirSync(OUT_DIR, { recursive: true });
+copyFileSync(SRC, DEST);
+
+const st = statSync(DEST);
 if (st.size === 0) {
-  throw new Error("entry.png is empty");
+  throw new Error("entry.png copy is empty");
 }
-if (st.size > 1048576) {
-  throw new Error(`entry.png is ${st.size} bytes, over the 1 MiB gate`);
+if (st.size > MAX_BYTES) {
+  throw new Error(`entry.png is ${st.size} bytes, over the 1 MiB limit`);
 }
-// The gate tells PNG from JPEG by its first bytes: refuse anything
-// that is not a whole PNG before copying.
-const magic = readFileSync(src).subarray(0, 8);
-const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-if (!magic.equals(pngMagic)) {
-  throw new Error("entry.png does not start with the PNG signature");
+const tail = readFileSync(DEST).subarray(0, 8);
+if (!tail.equals(PNG_MAGIC)) {
+  throw new Error("copied entry.png does not start with the PNG magic bytes");
 }
-const dest = join(outDir, "entry.png");
-copyFileSync(src, dest);
-console.log(`wrote ${dest} (${st.size} bytes)`);
+console.log(`wrote ${DEST} (${st.size} bytes)`);
